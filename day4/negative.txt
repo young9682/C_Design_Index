@@ -1,0 +1,13 @@
+abhorrent,abominable,abysmal,acrimonious,adverse,aggressive,agonizing
+alarming,alienating,annoying,antagonistic,anxious,appalling,arrogant
+atrocious,awful,baleful,barbaric,base,bitter,bizarre,blameworthy,bleak
+bothersome,brutal,callous,catastrophic,caustic,chaotic,clumsy,coarse
+cold,combative,compulsive,condescending,contemptible,corrupt,cowardly
+cruel,cynical,damaging,dangerous,deceitful,defective,degrading,deplorable
+depressed,derisive,despicable,destructive,detestable,dire,disappointing
+discordant,disgusting,dishonest,disloyal,dismal,dismissive,disorderly
+displeasing,disrespectful,distasteful,distressing,dreadful,drab,dull
+dysfunctional,egotistical,embarrassing,envious,erroneous,evil,excruciating
+faulty,fearful,ferocious,filthy,flawed,foolish,foul,fractious,fraudulent
+frightening,frustrating,futile,ghastly,gloomy,grating,grave,grievous
+grim,gruesome,guilty,harmful,harsh,hateful,haunting,heinous,hideous,hostile

@@ -1,0 +1,15 @@
+abundant,accepting,accomplished,active,adaptable,admirable,adorable
+adventurous,affectionate,agile,alert,alive,amazing,ambitious,amiable
+amicable,amusing,angelic,animated,appreciative,approachable,artistic
+assertive,assured,astounding,athletic,attentive,attractive,authentic
+awesome,balanced,beautiful,beneficial,benevolent,blissful,bold,brave
+bright,brilliant,bubbly,calm,capable,captivating,caring,charismatic
+charming,cheerful,chic,clever,compassionate,confident,congenial
+considerate,content,cool,cooperative,courageous,creative,cute
+dazzling,dedicated,delightful,determined,diligent,divine,dynamic
+eager,earnest,easygoing,efficient,elated,elegant,eloquent,empowered
+encouraging,energetic,engaging,enjoyable,enthusiastic,excellent
+exceptional,exciting,exquisite,fabulous,fair,faithful,fantastic
+fascinating,fearless,fervent,flexible,focused,friendly,fun,genuine
+gentle,gifted,glad,gleaming,glorious,good,gorgeous,graceful,grateful
+great,nice
