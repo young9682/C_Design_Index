@@ -1,101 +1,175 @@
-针对这个高保真银行排队调度仿真系统，4人分工的核心原则是：**“接口先行、模块解耦、难度均衡”**。由于C语言没有面向对象特性，必须通过头文件（`.h`）严格定义数据结构与函数原型，避免后期联调时的“地狱模式”。
+针对这个高保真银行排队调度仿真系统，4人分工的核心原则是：**”单文件协作、结构体封装、注释分区”**。所有代码写在同一个 `bank_simulation.cpp` 文件中，通过注释标记各人负责的区域，编译命令：`g++ -o bank_sim bank_simulation.cpp -lm`。代码风格保留C语言风格（结构体、函数、指针），使用.cpp扩展名仅用于编译便利。
+
+## 架构设计：单文件结构体封装
+
+采用**单一源文件**架构，所有类型定义、全局状态、模块函数均在 `bank_simulation.cpp` 中实现。模块间通过**结构体指针传递**进行通讯，每个模块用独立的结构体封装其内部状态，对外仅暴露操作函数。**不使用头文件**，所有声明和实现均在同一文件中，通过注释分区管理。
+
+### 模块划分（结构体封装）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   bank_simulation.cpp                       │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ 类型定义区 (P1) ============               │
+│  // 枚举、结构体定义                                        │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ P1: 随机引擎与配置 ============            │
+│  RandomEngine 结构体                                        │
+│  SimConfig 结构体                                           │
+│  rng_*() / config_*() 函数                                 │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ P2: DES核心引擎 ============               │
+│  EventList 结构体                                           │
+│  Queue 结构体                                               │
+│  Window 结构体                                              │
+│  sim_run() 主循环                                           │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ P3: 业务逻辑 ============                  │
+│  handle_arrival() / handle_service() / scheduler_*()        │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ P4: 统计与日志 ============                │
+│  StatsCollector 结构体                                      │
+│  Logger 结构体                                              │
+│  stats_*() / log_*() 函数                                  │
+├─────────────────────────────────────────────────────────────┤
+│  // ============ 主程序 main() ============                 │
+│  初始化各结构体 → 驱动仿真 → 输出报告                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 模块间通讯机制
+
+1. **结构体指针传递**：主程序创建各模块结构体实例，通过函数参数传递给各模块操作函数
+2. **配置挂载引用**：`SimConfig` 内持有 `RandomEngine*` 指针，各模块通过 `cfg->rng` 访问随机引擎，避免全局变量
+3. **回调函数**：事件处理器通过函数指针数组注册，解耦引擎与业务逻辑
+4. **单文件内前向声明**：函数在文件顶部集中声明，实现放在对应分区，无需头文件
+
+---
 
 以下是推荐的4人分工方案，按照**数据/随机基础 -> 核心引擎 -> 业务逻辑 -> 统计输出**的依赖链进行切分：
 
 ### 📋 分工总览表
 
-| 角色 | 模块名称 | 核心职责 | 关键交付物 (函数/结构体) | 难度 |
+| 角色 | 模块名称 | 核心职责 | 关键交付物 (结构体/函数) | 难度 |
 | :--- | :--- | :--- | :--- | :--- |
-| **P1** | **基础设施与随机引擎** | 全局配置、客户/窗口结构体定义、随机数发生器、配置文件解析 | `RandomGen`, `Config`, `Client`, `Window` 结构体及初始化函数 | ⭐⭐⭐ |
-| **P2** | **DES核心引擎与队列** | 事件表(最小堆)、优先队列实现、时间推进器、主循环框架 | `EventList`, `PriorityQueue`, `sim_run()`, `schedule_event()` | ⭐⭐⭐⭐⭐ |
-| **P3** | **业务逻辑与调度策略** | 到达生成、服务处理、弹性窗口、弃号/换队/异常等复杂规则 | `handle_arrival()`, `handle_service()`, `dynamic_switch()` | ⭐⭐⭐⭐ |
-| **P4** | **统计分析与日志持久化** | 实时指标计算、快照输出、日志文件写入、最终报告生成 | `StatsCollector`, `log_event()`, `print_snapshot()`, `write_report()` | ⭐⭐⭐ |
+| **P1** | **基础设施与随机引擎** | 类型定义区所有结构体定义、随机数引擎实现、配置与工具函数 | `RandomEngine`, `SimConfig`, `Client`, `Window`, `Event` 结构体定义; `rng_*()`, `config_*()` | ⭐⭐⭐ |
+| **P2** | **DES核心引擎与队列** | 事件表/队列结构体实现、窗口操作函数、仿真主循环 | `EventList`, `Queue` 结构体实现; `event_list_*()`, `queue_*()`, `window_*()`, `sim_run()` | ⭐⭐⭐⭐⭐ |
+| **P3** | **业务逻辑与调度策略** | 到达/服务/调度函数，通过结构体指针访问全局状态 | `handle_arrival()`, `handle_service()`, `scheduler_*()` | ⭐⭐⭐⭐ |
+| **P4** | **统计分析与日志持久化** | 统计收集器操作函数、日志结构体实现、报告生成 | `StatsCollector` 操作函数; `Logger` 结构体; `stats_*()`, `log_*()` | ⭐⭐⭐ |
 
 ---
 
 ### 👤 P1：基础设施与随机引擎 (Foundation & RNG)
 
-**定位**：项目的“地基”，所有其他模块都依赖你的头文件。
+**定位**：项目的”地基”，在 `bank_simulation.cpp` 文件顶部定义所有核心数据结构，并实现随机数引擎。
 
 -   **具体任务**：
-    1.  **全局结构体定义**：在 `types.h` 中定义 `Client`（含画像、业务类型、到达时间、优先级、状态）、`Window`（含熟练度k、类型、状态）、`SimConfig`（时段λ表、概率矩阵）。
-    2.  **随机数引擎封装** (`rng.c/h`)：
-        -   实现线性同余或梅森旋转算法作为底层均匀分布。
-        -   封装 `rand_exponential(lambda)` 用于到达间隔。
-        -   封装 `rand_lognormal(mu, sigma)` 用于业务时长（Box-Muller变换）。
-        -   支持 `set_seed()` 保证可复现性。
-    3.  **配置加载** (`config.c/h`)：解析宏定义或简易文本配置文件，填充 `SimConfig` 结构体（分时段λ、画像概率、业务耗时参数）。
-    4.  **工具函数**：时间格式化（分钟转"HH:MM"字符串）、安全内存分配封装。
+    1.  **核心结构体定义**（在文件顶部”类型定义区”）：
+        -   `Client`：客户节点（id、画像、业务类型、状态、到达/开始/结束时间、优先级权重、预约标识、队列编号）
+        -   `Window`：窗口节点（id、类型、状态、熟练度系数k、当前客户指针、统计计数器）
+        -   `Event`：事件节点（时间戳、类型、联合体数据）
+        -   `SimConfig`：仿真配置（时段λ表、画像概率、业务耗时参数、窗口配置、调度参数、营业时间）
+    2.  **随机数引擎结构体** `RandomEngine`：
+        -   内部状态：种子seed、状态数组（梅森旋转）
+        -   底层函数：`rng_init()`、`rng_uniform()`、`rng_exponential()`、`rng_lognormal()`
+        -   业务函数：`rng_random_client_type()`、`rng_random_business()`
+    3.  **配置函数**：
+        -   `config_init_default()`：填充默认配置到 `SimConfig` 结构体
+        -   `config_get_lambda()`：查表获取当前时段 λ(t)
+    4.  **工具函数**：`time_format()`（分钟转”HH:MM”）、`safe_malloc()`、`safe_calloc()`
 
--   **验收标准**：随机数分布通过卡方检验；结构体字段完整覆盖需求文档；其他三人能直接 `#include` 并使用。
+-   **验收标准**：随机数分布通过卡方检验；结构体字段完整覆盖需求文档；其他三人能直接调用函数并使用结构体。
 
 ### 👤 P2：DES核心引擎与队列 (Engine & Data Structures)
 
-**定位**：项目的“心脏”，最考验数据结构功底，是技术风险最高的模块。
+**定位**：项目的”心脏”，实现事件驱动仿真引擎和数据结构。
 
 -   **具体任务**：
-    1.  **事件表实现** (`event_list.c/h`)：
-        -   使用**最小堆**（数组实现）存储事件 `{timestamp, type, payload_ptr}`。
-        -   提供 `insert_event()`, `pop_next_event()`, `cancel_event()` (用于过号/异常中断)。
-    2.  **多级优先队列** (`queue.c/h`)：
-        -   实现支持自定义比较函数的优先队列（排序权重 = FIFO序 + 画像权重 + 预约标识）。
-        -   提供 `enqueue()`, `dequeue()`, `remove_by_id()` (用于Jockeying换队), `get_length()`。
-    3.  **仿真主循环** (`sim_engine.c/h`)：
-        -   `sim_init()`: 初始化事件表、队列、窗口状态。
-        -   `sim_run()`: while循环 pop事件 -> 更新时间 -> 分发到P3的处理函数 -> 检查终止条件(20:00强制关门)。
-    4.  **事件类型枚举**：定义 `ARRIVAL`, `START_SERVICE`, `END_SERVICE`, `WINDOW_SWITCH`, `BULK_ARRIVAL`, `SHUTDOWN`。
+    1.  **事件表结构体** `EventList`：
+        -   内部封装最小堆（动态数组实现）
+        -   操作函数：`event_list_create()`、`event_list_insert()`、`event_list_pop()`、`event_list_cancel_by_client()`、`event_list_cancel_by_type()`、`event_list_destroy()`
+    2.  **队列结构体** `Queue`：
+        -   内部封装多级优先队列（按 FIFO序 + 画像权重 + 预约标识 排序）
+        -   操作函数：`queue_create()`、`queue_enqueue()`、`queue_dequeue()`、`queue_remove_by_id()`、`queue_get_length()`、`queue_get_min_length()`、`queue_find_no_response()`
+    3.  **窗口管理结构体**：
+        -   窗口数组由 `Window` 结构体直接表示（P1已定义）
+        -   操作函数：`window_create()`、`window_destroy()`、`window_switch_type()`、`window_get_idle_count()`、`window_find_idle()`
+    4.  **仿真主循环函数**：
+        -   `sim_init()`：初始化事件表、队列、窗口状态（通过结构体指针操作）
+        -   `sim_run()`：while循环 pop事件 -> 更新时间 -> 通过回调函数指针分发到P3处理函数（传递所有结构体指针包括 StatsCollector）-> 检查终止条件
+    5.  **事件类型枚举**：`ARRIVAL`, `BULK_ARRIVAL`, `START_SERVICE`, `END_SERVICE`, `WINDOW_SWITCH`, `NO_RESPONSE_TIMEOUT`, `SHUTDOWN`
 
 -   **验收标准**：事件表插入/弹出 O(log n)；优先队列支持动态删除；主循环能正确驱动空跑（无业务逻辑时不崩溃）。
 
 ### 👤 P3：业务逻辑与调度策略 (Business Logic & Scheduling)
 
-**定位**：项目的“大脑”，将需求文档中的复杂规则转化为代码，依赖P1的配置和P2的引擎。
+**定位**：项目的”大脑”，将需求文档中的复杂规则转化为函数实现，通过参数接收所有结构体指针。
 
 -   **具体任务**：
-    1.  **到达处理** (`arrival.c/h`)：
-        -   根据当前时间查表获取 λ(t)，调用P1的指数分布生成下一到达事件，通过回调参数 `EventList *el` 插入事件。
-        -   按概率赋予客户画像，生成业务类型。
-        -   实现**批量突发注入**：在随机时间点一次性插入一批客户事件（人数随机）。
-        -   实现**Balking**：检查最短队列长度，超阈值则按概率丢弃并通知P4记录流失。
-        -   每次入队后调用 `stats_record_queue_length()` 更新排队长度统计。
-    2.  **服务处理** (`service.c/h`)：
-        -   `start_service()`: 从队列取客户，计算实际时长(基准×k)，通过 `el` 插入 END_SERVICE 事件。
-        -   `end_service()`: 释放窗口，触发下一位叫号；按2%概率触发异常中断，通过 `el` 插入 NO_RESPONSE_TIMEOUT 事件；每次出队后调用 `stats_record_queue_length()` 更新排队长度统计。
-    3.  **动态调度** (`scheduler.c/h`)：
-        -   **弹性窗口**：定期检查队列长度，满足条件时切换窗口类型并插入 WINDOW_SWITCH 事件。
-        -   **Jockeying**：在服务开始/结束时检查相邻队列，触发换队操作（调用P2的remove+enqueue）。
-        -   **过号重排**：超时未响应则降级重新入队。
-        -   **营业时间控制**：17:00后停止生成ARRIVAL事件。
+    1.  **到达处理函数**：
+        -   `handle_arrival()`：接收 `(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats)`
+        -   根据当前时间查表获取 λ(t)，调用 `rng_exponential(cfg->rng, lambda)` 生成下一到达事件，插入 `EventList`
+        -   按概率赋予客户画像，生成业务类型
+        -   实现**批量突发注入** `handle_bulk_arrival()`：在随机时间点一次性插入一批客户事件
+        -   实现**Balking**：检查最短队列长度，超阈值则按概率丢弃并调用 `stats_record_balk(stats, c)`
+    2.  **服务处理函数**：
+        -   `handle_start_service()`：从队列取客户，计算实际时长(基准×k)，插入 END_SERVICE 事件
+        -   `handle_end_service()`：释放窗口，触发下一位叫号；按概率触发异常中断
+        -   每次入队/出队后调用 `stats_record_queue_length(stats, length)` 更新排队长度统计
+    3.  **调度器函数**：
+        -   `scheduler_check_tidal(cfg, queue, wins, current_time)`：定期检查队列长度，满足条件时切换窗口类型
+        -   `scheduler_check_jockeying(cfg, queue, queue_id, stats)`：在服务开始/结束时检查相邻队列，触发换队操作
+        -   `scheduler_check_no_response(cfg, queue, el, current_time)`：过号检测，超时未响应则降级重新入队
+        -   `handle_no_response_timeout()`：过号超时处理函数
+        -   `handle_shutdown()`：营业结束处理函数
 
 -   **验收标准**：VIP确实优先；高峰时段队列明显增长；弹性窗口能自动切换；异常中断后能恢复服务。
 
 ### 👤 P4：统计分析与日志持久化 (Statistics & Logging)
 
-**定位**：项目的“脸面”和验收依据，确保数据正确性和日志规范性。
+**定位**：项目的”脸面”和验收依据，确保数据正确性和日志规范性。
 
 -   **具体任务**：
-    1.  **统计收集器** (`stats.c/h`)：
-        -   维护全局计数器：总到达、总完成、总流失、各画像等待时长累加、各窗口服务量/空闲时间/异常次数。
-        -   提供 `record_arrival()`, `record_service_start()`, `record_service_end()`, `record_balk()` 等钩子函数供P3调用。
+    1.  **统计收集器结构体** `StatsCollector`（已在类型定义区定义）：
+        -   内部封装：总到达、总完成、总流失、各画像等待时长累加、各窗口服务量/空闲时间/异常次数、最大排队长度、满意度累计等
+        -   操作函数（均接收 `StatsCollector *stats` 作为第一个参数）：
+            -   `stats_record_arrival(stats, c)`：记录客户到达
+            -   `stats_record_service_start(stats, c, window_id)`：记录开始服务
+            -   `stats_record_service_end(stats, c, window_id, duration)`：记录结束服务
+            -   `stats_record_wait(stats, c, wait_time)`：记录等待时长
+            -   `stats_record_balk(stats, c)`：记录弃号
+            -   `stats_record_jockey(stats, c, from_q, to_q)`：记录换队
+            -   `stats_record_error(stats, window_id)`：记录异常中断
+            -   `stats_record_queue_length(stats, length)`：更新排队长度
     2.  **实时控制台输出**：
-        -   关键事件带时间戳打印（格式化对齐）。
-    3.  **日志文件写入** (`logger.c/h`)：
-        -   `log_event()`: 追加写入过程日志到 `simulation_log.txt`。
-        -   `write_final_report()`: 仿真结束后计算平均值、满意度、均衡度偏差，格式化输出总结报告。
-    4.  **数据校验**：编写简单的断言/检查函数，验证统计值非负、窗口服务量偏差<15%。
+        -   `stats_print_event()`：关键事件带时间戳打印（格式化对齐）
+    3.  **日志结构体** `Logger`：
+        -   内部封装：文件指针、缓冲区
+        -   操作函数：`log_init()`、`log_close()`、`log_event()`（追加写入过程日志）、`log_printf()`（控制台+日志双输出）
+    4.  **报告生成函数**：
+        -   `stats_write_report(stats, filename, wins, win_count)`：仿真结束后计算平均值、满意度、均衡度偏差，格式化输出总结报告到文件
 
 -   **验收标准**：日志文件格式清晰可读；统计数据与手动推算一致；控制台输出不刷屏且信息完整。
 
 ---
 
-### 🔗 协作接口约定（开工前必须敲定！）
+### 🔗 单文件协作接口约定（开工前必须敲定！）
 
-为避免联调灾难，**第一天**四人需共同确定以下接口（写入共享头文件）：
+为避免联调灾难，**第一天**四人需共同确定以下接口。所有类型定义和函数声明均写在 `bank_simulation.cpp` 文件顶部，**不使用头文件**。
 
-```c
+```cpp
 // ================================================================
-// types.h — P1主导，全员确认，所有模块共享
+// bank_simulation.cpp — 所有类型定义、函数声明、实现均在此文件
 // ================================================================
+// 文件结构：
+//   [文件顶部]  枚举定义 + 结构体定义 + 函数前向声明
+//   [P1分区]    随机引擎实现 + 配置实现 + 工具函数实现
+//   [P2分区]    事件表/队列/窗口实现 + 仿真引擎实现
+//   [P3分区]    业务逻辑实现
+//   [P4分区]    统计/日志实现
+//   [文件末尾]  main() 主程序
+
+// ==================== 类型定义区（全员共享）====================
 
 // ---------- 枚举 ----------
 
@@ -140,7 +214,14 @@ typedef enum {
     SHUTDOWN            // 营业结束
 } EventType;
 
-// ---------- 结构体 ----------
+// ---------- 结构体定义 ----------
+
+// 随机数引擎（梅森旋转算法内部状态，P1实现）
+typedef struct {
+    unsigned int seed;          // 当前种子
+    unsigned int mt[624];       // 梅森旋转状态数组
+    int mt_index;               // 状态索引
+} RandomEngine;
 
 // 客户节点（到达时 malloc，完成/流失/关门时 free）
 typedef struct {
@@ -176,9 +257,12 @@ typedef struct {
     double timestamp;           // 事件触发时间（分钟）
     EventType type;             // 事件类型
     union {
-        Client *client;         // ARRIVAL / BULK_ARRIVAL / END_SERVICE 等
-        int window_id;          // WINDOW_SWITCH 时使用
+        Client *client;         // ARRIVAL: 新创建的客户; START_SERVICE/END_SERVICE: 正在服务的客户
+        int window_id;          // WINDOW_SWITCH: 目标窗口编号
     } data;
+    // 注意：BULK_ARRIVAL 不使用 data 字段，handler 内部批量创建客户
+    //       NO_RESPONSE_TIMEOUT 不使用 data 字段，通过 queue_find_no_response 查找
+    //       SHUTDOWN 不使用 data 字段
 } Event;
 
 // 时段配置项
@@ -196,6 +280,9 @@ typedef struct {
 
 // 全局仿真配置
 typedef struct {
+    // 随机数引擎引用（由main初始化，各模块通过cfg->rng访问）
+    RandomEngine *rng;
+
     // 时段到达率
     TimeSlot time_slots[16];    // 最多16个时段
     int time_slot_count;
@@ -241,210 +328,187 @@ typedef struct {
     double max_satisfy_wait;    // 满意度=0 的等待时长上限（分钟，默认60）
 } SimConfig;
 
+// 统计收集器（P4实现，max_windows由SimConfig.window_count决定）
+#define MAX_WINDOWS 10  // 窗口数组上限，与SimConfig.window_count配合使用
 
-// ================================================================
-// rng.h — P1实现，P2/P3调用
-// ================================================================
+typedef struct {
+    int total_arrivals;             // 总到达人数
+    int total_completed;            // 总完成人数
+    int total_balked;               // 总弃号人数
+    int total_jockeyed;             // 总换队次数
+    int total_errors;               // 总异常中断次数
 
-void   rng_set_seed(unsigned int seed);
-double rng_uniform(double min, double max);                    // [min, max) 均匀分布
-double rng_exponential(double lambda);                         // 指数分布，用于到达间隔
-double rng_lognormal(double mu, double sigma);                 // 对数正态分布，用于业务时长
-int    rng_random_client_type(const SimConfig *cfg);           // 按概率随机返回 ClientType
-int    rng_random_business(const SimConfig *cfg, int ctype);  // 按画像概率随机返回 BusinessType
+    double wait_time_sum[4];        // 各画像等待时长累加（按 ClientType 索引）
+    int wait_time_count[4];         // 各画像等待人数
 
+    int window_served[MAX_WINDOWS];     // 各窗口服务量
+    double window_busy_time[MAX_WINDOWS]; // 各窗口累计服务时间
+    int window_errors[MAX_WINDOWS];     // 各窗口异常次数
+    int win_count;                      // 实际窗口数（初始化时设置，用于边界检查）
 
-// ================================================================
-// config.h — P1实现，P3调用
-// ================================================================
+    int max_queue_length;           // 最大排队长度
+    double max_queue_time;          // 最大排队长度发生时间
 
-void config_init_default(SimConfig *cfg);                      // 填充默认配置
-double config_get_lambda(const SimConfig *cfg, int time_min);  // 查表获取当前时段 λ(t)
-void config_print(const SimConfig *cfg);                       // 打印当前配置（调试用）
+    double satisfaction_sum;        // 满意度累加
+    int satisfaction_count;         // 满意度采样数
+} StatsCollector;
 
+// 不透明类型前向声明（必须在 EventHandler 之前）
+typedef struct EventList EventList;
+typedef struct Queue Queue;
 
-// ================================================================
-// utils.h — P1实现，全员调用
-// ================================================================
+// 事件分发回调函数类型
+typedef void (*EventHandler)(Event *e, SimConfig *cfg,
+                             Queue *queue, Window *wins,
+                             EventList *el, StatsCollector *stats);
 
-char*  time_format(double minutes, char *buf, int buf_size);   // 分钟 → "HH:MM"
-void*  safe_malloc(size_t size);                               // malloc 封装，失败则退出
-void*  safe_calloc(size_t nmemb, size_t size);                 // calloc 封装
+// ==================== 函数前向声明区 ====================
+// （按模块分区声明，实现放在对应分区）
 
+// --- P1: 随机引擎与配置 ---
+// 所有rng_*函数第一个参数均为RandomEngine*，显式传递引擎状态（无全局变量）
+void   rng_init(RandomEngine *rng, unsigned int seed);  // 初始化梅森旋转引擎
+void   rng_set_seed(RandomEngine *rng, unsigned int seed);  // 重新设置种子
+double rng_uniform(RandomEngine *rng, double min, double max);
+double rng_exponential(RandomEngine *rng, double lambda);
+double rng_lognormal(RandomEngine *rng, double mu, double sigma);
+int    rng_random_client_type(RandomEngine *rng, const SimConfig *cfg);
+int    rng_random_business(RandomEngine *rng, const SimConfig *cfg, int ctype);
+void   config_init_default(SimConfig *cfg);
+double config_get_lambda(const SimConfig *cfg, int time_min);
+void   config_print(const SimConfig *cfg);
+char*  time_format(double minutes, char *buf, int buf_size);
+void*  safe_malloc(size_t size);
+void*  safe_calloc(size_t nmemb, size_t size);
 
-// ================================================================
-// event_list.h — P2实现，P3/P4调用
-// ================================================================
-
-typedef struct EventList EventList;                            // 不透明类型
-
+// --- P2: DES核心引擎 ---
 EventList* event_list_create(void);
 void       event_list_destroy(EventList *el);
-int        event_list_insert(EventList *el, Event event);      // O(log n)，返回0成功
-int        event_list_pop(EventList *el, Event *out);          // 弹出最小事件，返回0成功，1空
-int        event_list_cancel(EventList *el, double ts,
-                             EventType type, void *ptr);       // 按条件取消事件
-int        event_list_empty(const EventList *el);              // 1=空，0=非空
-int        event_list_size(const EventList *el);               // 当前事件数
-
-
-// ================================================================
-// queue.h — P2实现，P3调用
-// ================================================================
-
-typedef struct Queue Queue;                                    // 不透明类型
+int        event_list_insert(EventList *el, Event event);
+int        event_list_pop(EventList *el, Event *out);
+int        event_list_cancel_by_client(EventList *el, int client_id);  // 取消指定客户的所有待处理事件
+int        event_list_cancel_by_type(EventList *el, EventType type, double after_time);  // 取消某时间之后的指定类型事件
+int        event_list_empty(const EventList *el);
+int        event_list_size(const EventList *el);
 
 Queue*   queue_create(int max_queues);
 void     queue_destroy(Queue *q);
-int      queue_enqueue(Queue *q, int queue_id, Client *c);    // 返回0成功，-1队列满
-Client*  queue_dequeue(Queue *q, int queue_id);               // 返回NULL则队列空
-Client*  queue_remove_by_id(Queue *q, int queue_id,
-                            int client_id);                   // Jockeying: 移除指定客户
-int      queue_get_length(const Queue *q, int queue_id);      // 获取指定队列长度
-int      queue_get_min_length(const Queue *q, int *out_id);   // 返回最短队列长度，out_id写入其编号
-Client*  queue_find_no_response(Queue *q, double current_time,
-                               double timeout);               // 过号检测：返回超时未响应的客户
+int      queue_enqueue(Queue *q, int queue_id, Client *c);
+Client*  queue_dequeue(Queue *q, int queue_id);
+Client*  queue_remove_by_id(Queue *q, int queue_id, int client_id);
+int      queue_get_length(const Queue *q, int queue_id);
+int      queue_get_min_length(const Queue *q, int *out_id);
+Client*  queue_find_no_response(Queue *q, double current_time, double timeout);
 
-
-// ================================================================
-// window.h — P2实现，P3调用
-// ================================================================
-
-Window*  window_create(int count, int tidal_count,
-                       double k_min, double k_max);           // 创建窗口数组
+Window*  window_create(int count, int tidal_count, double k_min, double k_max);
 void     window_destroy(Window *wins);
-int      window_switch_type(Window *w, WindowType new_type);   // 切换窗口类型，返回0成功
-int      window_get_idle_count(const Window *wins, int count); // 空闲窗口数
-Window*  window_find_idle(Window *wins, int count,
-                          WindowType type);                    // 按类型查找空闲窗口
+int      window_switch_type(Window *w, WindowType new_type);
+int      window_get_idle_count(const Window *wins, int count);
+Window*  window_find_idle(Window *wins, int count, WindowType type);
 
+void sim_init(SimConfig *cfg, EventList *el, Queue *queue, Window *wins, int win_count);
+void sim_run(SimConfig *cfg, EventList *el, Queue *queue, Window *wins,
+             int win_count, EventHandler handlers[], StatsCollector *stats);
+double sim_get_current_time(void);  // 返回仿真当前时间（由sim_run内部维护的静态变量）
 
-// ================================================================
-// sim_engine.h — P2实现，驱动P3的回调
-// ================================================================
+// --- P3: 业务逻辑 ---
+void handle_arrival(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void handle_bulk_arrival(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void schedule_next_arrival(SimConfig *cfg, EventList *el, double current_time);  // 由handle_arrival内部调用，安排下一次到达事件
+void handle_start_service(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void handle_end_service(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void handle_window_switch(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void scheduler_check_tidal(SimConfig *cfg, Queue *queue, Window *wins, double current_time);
+void scheduler_check_balking(Event *e, SimConfig *cfg, Queue *queue, StatsCollector *stats);
+void scheduler_check_jockeying(SimConfig *cfg, Queue *queue, int queue_id, StatsCollector *stats);
+void scheduler_check_no_response(SimConfig *cfg, Queue *queue, EventList *el, double current_time);
+void handle_no_response_timeout(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
+void handle_shutdown(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 
-// 事件分发回调函数类型（EventList 传入，使 P3 能插入新事件）
-typedef void (*EventHandler)(Event *e, SimConfig *cfg,
-                             Queue *queue, Window *wins,
-                             EventList *el);
+// --- P4: 统计与日志 ---
+void stats_record_arrival(StatsCollector *stats, Client *c);
+void stats_record_service_start(StatsCollector *stats, Client *c, int window_id);
+void stats_record_service_end(StatsCollector *stats, Client *c, int window_id, double duration);
+void stats_record_wait(StatsCollector *stats, Client *c, double wait_time);
+void stats_record_balk(StatsCollector *stats, Client *c);
+void stats_record_jockey(StatsCollector *stats, Client *c, int from_q, int to_q);
+void stats_record_error(StatsCollector *stats, int window_id);
+void stats_record_queue_length(StatsCollector *stats, int length);
+void stats_print_event(double time, const char *category, const char *fmt, ...);  // 关键事件带时间戳打印到控制台
+double stats_get_max_queue_length(const StatsCollector *stats);
+void stats_record_satisfaction(StatsCollector *stats, Client *c, double max_possible_wait);
+void stats_write_report(const StatsCollector *stats, const char *filename, const Window *wins, int win_count);
+void log_init(const char *filename);
+void log_close(void);
+void log_event(double time, const char *category, const char *fmt, ...);
+void log_printf(const char *fmt, ...);
 
-void sim_init(SimConfig *cfg, EventList *el,
-              Queue *queue, Window *wins);                     // 初始化所有子系统
-void sim_run(SimConfig *cfg, EventList *el,
-             Queue *queue, Window *wins,
-             EventHandler handlers[]);                         // 主循环
-double sim_get_current_time(void);                             // 获取当前仿真时间
+// ==================== 函数实现区（按分区编写）====================
+// 注：以下为示例框架，具体实现由各人负责
 
+// ==================== 主程序 main()（文件末尾）====================
+// P2/P3共同编写
 
-// ================================================================
-// arrival.h — P3实现，被 sim_engine 回调
-// ================================================================
-
-void handle_arrival(Event *e, SimConfig *cfg,
-                    Queue *queue, Window *wins,
-                    EventList *el);                            // 单个客户到达
-void handle_bulk_arrival(Event *e, SimConfig *cfg,
-                         Queue *queue, Window *wins,
-                         EventList *el);                       // 批量突发到达
-void schedule_next_arrival(SimConfig *cfg, EventList *el,
-                           double current_time);               // 安排下一次到达事件
-
-
-// ================================================================
-// service.h — P3实现，被 sim_engine 回调
-// ================================================================
-
-void handle_start_service(Event *e, SimConfig *cfg,
-                          Queue *queue, Window *wins,
-                          EventList *el);                      // 开始办理：取号→计算时长→插入END
-void handle_end_service(Event *e, SimConfig *cfg,
-                        Queue *queue, Window *wins,
-                        EventList *el);                        // 结束办理：释放窗口→叫号→检查异常
-
-
-// ================================================================
-// scheduler.h — P3实现，被 sim_engine 回调
-// ================================================================
-
-void handle_window_switch(Event *e, SimConfig *cfg,
-                          Queue *queue, Window *wins,
-                          EventList *el);                      // 弹性窗口切换
-void scheduler_check_tidal(SimConfig *cfg, Window *wins,
-                           double current_time);               // 潮汐窗口定时检查
-void scheduler_check_balking(Event *e, SimConfig *cfg,
-                             Queue *queue);                    // Balking判断
-void scheduler_check_jockeying(Queue *queue,
-                               int queue_id);                  // Jockeying换队检查
-void scheduler_check_no_response(Queue *queue, EventList *el,
-                                 double current_time);         // 过号重排检查
-void handle_no_response_timeout(Event *e, SimConfig *cfg,
-                                Queue *queue, Window *wins,
-                                EventList *el);                // 过号超时处理：降级重入队
-void handle_shutdown(Event *e, SimConfig *cfg,
-                     Queue *queue, Window *wins,
-                     EventList *el);                           // 营业结束：记录未办结客户并释放
-
-
-// ================================================================
-// stats.h — P4实现，P3在各关键点调用
-// ================================================================
-
-void stats_init(void);
-void stats_record_arrival(Client *c);                          // 记录客户到达
-void stats_record_service_start(Client *c, int window_id);     // 记录开始服务
-void stats_record_service_end(Client *c, int window_id,
-                              double duration);                // 记录结束服务
-void stats_record_wait(Client *c, double wait_time);           // 记录等待时长
-void stats_record_balk(Client *c);                             // 记录弃号
-void stats_record_jockey(Client *c, int from_q, int to_q);    // 记录换队
-void stats_record_error(int window_id);                        // 记录异常中断
-void stats_record_queue_length(int length);                    // 更新当前排队长度（每次 enqueue/dequeue 后调用）
-double stats_get_max_queue_length(void);                       // 获取最大排队长度
-void stats_record_satisfaction(Client *c, double max_possible_wait); // 记录满意度估算
-void stats_write_report(const char *filename,
-                        const Window *wins, int win_count);    // 写入最终报告
-
-
-// ================================================================
-// logger.h — P4实现，P3/P2调用
-// ================================================================
-
-void log_init(const char *filename);                           // 打开日志文件
-void log_close(void);                                          // 关闭日志文件
-void log_event(double time, const char *category,
-               const char *fmt, ...);                          // 追加一条事件日志
-void log_printf(const char *fmt, ...);                         // 控制台+日志双输出
-
-
-// ================================================================
-// 主程序 main.c — P2/P3共同编写
-// ================================================================
-
-// 模块初始化顺序：config → rng → stats → logger → queue → window → event_list → sim_engine
+// 模块初始化顺序：config → rng → logger → queue → window → event_list → stats → sim_engine
 // 模拟运行：sim_run() 驱动所有事件
 // 退出清理：stats_write_report() → log_close() → 各子系统 destroy
-int main(int argc, char *argv[]);
+int main(int argc, char *argv[]) {
+    // 创建全局上下文
+    SimConfig cfg;
+    StatsCollector stats;       // 统计收集器（栈上分配，手动初始化）
+    EventList *el;
+    Queue *queue;
+    Window *wins;
+    RandomEngine rng;           // 随机数引擎实例
 
-// EventHandler 注册表（传给 sim_run）
-// 每个 handler 签名统一为：(Event*, SimConfig*, Queue*, Window*, EventList*)
-// handlers[ARRIVAL]         = handle_arrival
-// handlers[BULK_ARRIVAL]    = handle_bulk_arrival
-// handlers[START_SERVICE]   = handle_start_service
-// handlers[END_SERVICE]     = handle_end_service
-// handlers[WINDOW_SWITCH]   = handle_window_switch
-// handlers[NO_RESPONSE_TIMEOUT] = handle_no_response_timeout
-// handlers[SHUTDOWN]        = handle_shutdown
+    // 初始化各模块
+    config_init_default(&cfg);
+    rng_init(&rng, 12345);      // 初始化梅森旋转引擎（或从命令行参数获取种子）
+    cfg.rng = &rng;              // 将引擎引用挂载到配置，各模块通过cfg->rng访问
+    log_init("simulation.log");
+    queue = queue_create(cfg.window_count);
+    wins = window_create(cfg.window_count, cfg.tidal_window_count, 0.8, 1.5);
+    el = event_list_create();
+
+    // 初始化统计收集器（设置实际窗口数，用于数组边界检查）
+    memset(&stats, 0, sizeof(StatsCollector));
+    stats.win_count = cfg.window_count;
+
+    // 注册事件处理器
+    EventHandler handlers[7];
+    handlers[ARRIVAL]          = handle_arrival;
+    handlers[BULK_ARRIVAL]     = handle_bulk_arrival;
+    handlers[START_SERVICE]    = handle_start_service;
+    handlers[END_SERVICE]      = handle_end_service;
+    handlers[WINDOW_SWITCH]    = handle_window_switch;
+    handlers[NO_RESPONSE_TIMEOUT] = handle_no_response_timeout;
+    handlers[SHUTDOWN]         = handle_shutdown;
+
+    // 运行仿真
+    sim_init(&cfg, el, queue, wins, cfg.window_count);
+    sim_run(&cfg, el, queue, wins, cfg.window_count, handlers, &stats);
+
+    // 清理资源
+    stats_write_report(&stats, "report.txt", wins, cfg.window_count);
+    log_close();
+    event_list_destroy(el);
+    queue_destroy(queue);
+    window_destroy(wins);
+
+    return 0;
+}
 ```
 
 ### ⚠️ 风险提示与应对
 
 1.  **P2是瓶颈**：DES引擎和优先队列最难，建议P2由数据结构最强的同学担任。若进度滞后，P1在完成基础模块后应优先支援P2。
-2.  **指针管理**：C语言手动管理内存，`Event.payload` 指向的 `Client` 何时malloc/free需明确约定。**建议**：Client在到达时malloc，在服务完成/流失/关门时free；事件表只存指针不拷贝。
-3.  **调试策略**：不要等四个模块全写完再联调。
-    -   P1+P2跑通“空事件循环”；P4写好日志框架。
+2.  **指针管理**：C风格代码手动管理内存，`Event.data.client` 指向的 `Client` 何时malloc/free需明确约定。**建议**：Client在到达时malloc，在服务完成/流失/关门时free；事件表只存指针不拷贝。
+3.  **单文件协作**：所有代码在 `bank_simulation.cpp` 中，通过注释分区（`// ============ P1 ============` 等）标记各人负责区域。合并时使用Git分支，避免冲突。
+4.  **调试策略**：不要等四个模块全写完再联调。
+    -   P1+P2跑通”空事件循环”；P4写好日志框架。
     -   P3加入基础FIFO到达/服务，P4验证计数。
     -   叠加优先级、弹性窗口、异常等高级特性。
     -   压力测试、边界测试、日志美化。
-4.  **Git规范**：每人一个分支（`feat/rng`, `feat/engine`, `feat/logic`, `feat/stats`），通过PR合并到`main`，禁止直接push main。
+5.  **Git规范**：每人一个分支（`feat/rng`, `feat/engine`, `feat/logic`, `feat/stats`），通过PR合并到`main`，禁止直接push main。合并后确保编译通过。
 
-此分工确保了每个模块内聚、模块间耦合仅通过头文件接口，且四人的工作量与难度相对均衡，符合综合实验的教学目标与工程实践要求。
+此分工确保了每个模块内聚、模块间耦合仅通过函数调用接口，且四人的工作量与难度相对均衡，符合综合实验的教学目标与工程实践要求。
