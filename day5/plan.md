@@ -70,7 +70,7 @@
 
 ## 五、 提示与建议
 
-- **事件表设计**：建议定义事件类型枚举 `{ARRIVAL, START_SERVICE, END_SERVICE, WINDOW_SWITCH, SHUTDOWN}`，事件表按时间戳排序的最小堆或有序链表是DES的核心。
+- **事件表设计**：建议定义事件类型枚举 `{ARRIVAL, BULK_ARRIVAL, START_SERVICE, END_SERVICE, WINDOW_SWITCH, NO_RESPONSE_TIMEOUT, SHUTDOWN}`，事件表按时间戳排序的最小堆或有序链表是DES的核心。
 - **配置外部化**：虽然要求C语言，但建议用宏或简单的配置解析函数管理时段、概率、系数等参数，避免硬编码。
 - **调试策略**：先关闭所有高级特性（优先级、弹性窗口、异常），跑通基础FIFO+分时到达；再逐步叠加复杂逻辑。
 - **验证方法**：固定随机种子进行可复现测试；极端参数测试（如λ=0或λ=100）检验边界处理。

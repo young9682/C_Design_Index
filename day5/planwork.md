@@ -54,7 +54,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **P1** | **基础设施与随机引擎** | 类型定义区所有结构体定义、随机数引擎实现、配置与工具函数 | `RandomEngine`, `SimConfig`, `Client`, `Window`, `Event` 结构体定义; `rng_*()`, `config_*()` | ⭐⭐⭐ |
 | **P2** | **DES核心引擎与队列** | 事件表/队列结构体实现、窗口操作函数、仿真主循环 | `EventList`, `Queue` 结构体实现; `event_list_*()`, `queue_*()`, `window_*()`, `sim_run()` | ⭐⭐⭐⭐⭐ |
-| **P3** | **业务逻辑与调度策略** | 到达/服务/调度函数，通过结构体指针访问全局状态 | `handle_arrival()`, `handle_service()`, `scheduler_*()` | ⭐⭐⭐⭐ |
+| **P3** | **业务逻辑与调度策略** | 到达/服务/调度函数，窗口-队列映射与叫号辅助，通过结构体指针访问全局状态 | `get_queue_for_window_type()`, `try_call_next()`, `start_service_for_client()`, `handle_arrival()`, `handle_end_service()`, `scheduler_*()` | ⭐⭐⭐⭐ |
 | **P4** | **统计分析与日志持久化** | 统计收集器操作函数、日志结构体实现、报告生成 | `StatsCollector` 操作函数; `Logger` 结构体; `stats_*()`, `log_*()` | ⭐⭐⭐ |
 
 ---
@@ -106,22 +106,25 @@
 **定位**：项目的”大脑”，将需求文档中的复杂规则转化为函数实现，通过参数接收所有结构体指针。
 
 -   **具体任务**：
-    1.  **到达处理函数**：
+    1.  **窗口-队列映射与叫号辅助**：
+        -   `get_queue_for_window_type(WindowType wtype)`：根据窗口类型返回对应队列ID（WIN_PRIORITY→1, WIN_CORPORATE→2, 其他→0）
+        -   `try_call_next(cfg, queue, wins, win_count, el, stats)`：遍历所有空闲窗口，从对应队列取客户并开始服务
+        -   `start_service_for_client(c, win, cfg, el, stats)`：为指定客户启动服务，计算时长(基准×k)，插入 END_SERVICE 事件
+    2.  **到达处理函数**：
         -   `handle_arrival()`：接收 `(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats)`
         -   根据当前时间查表获取 λ(t)，调用 `rng_exponential(cfg->rng, lambda)` 生成下一到达事件，插入 `EventList`
         -   按概率赋予客户画像，生成业务类型
         -   实现**批量突发注入** `handle_bulk_arrival()`：在随机时间点一次性插入一批客户事件
         -   实现**Balking**：检查最短队列长度，超阈值则按概率丢弃并调用 `stats_record_balk(stats, c)`
-    2.  **服务处理函数**：
-        -   `handle_start_service()`：从队列取客户，计算实际时长(基准×k)，插入 END_SERVICE 事件
-        -   `handle_end_service()`：释放窗口，触发下一位叫号；按概率触发异常中断
+    3.  **服务处理函数**：
+        -   `handle_start_service()`：验证客户状态，调用 `start_service_for_client()` 执行服务
+        -   `handle_end_service()`：释放窗口，按概率触发异常中断（2分钟后 WINDOW_SWITCH 恢复），触发叫号；关门后检查是否所有队列清空
         -   每次入队/出队后调用 `stats_record_queue_length(stats, length)` 更新排队长度统计
-    3.  **调度器函数**：
-        -   `scheduler_check_tidal(cfg, queue, wins, current_time)`：定期检查队列长度，满足条件时切换窗口类型
+    4.  **调度器函数**：
+        -   `scheduler_check_tidal(cfg, queue, wins, el, current_time)`：定期检查队列总长度，满足条件时切换潮汐窗口开关状态
         -   `scheduler_check_jockeying(cfg, queue, queue_id, stats)`：在服务开始/结束时检查相邻队列，触发换队操作
-        -   `scheduler_check_no_response(cfg, queue, el, current_time)`：过号检测，超时未响应则降级重新入队
-        -   `handle_no_response_timeout()`：过号超时处理函数
-        -   `handle_shutdown()`：营业结束处理函数
+        -   `handle_no_response_timeout()`：过号超时处理函数（客户降权后重新入队）
+        -   `handle_shutdown()`：营业结束处理函数（强制结束服务、清空队列、记录未办结客户）
 
 -   **验收标准**：VIP确实优先；高峰时段队列明显增长；弹性窗口能自动切换；异常中断后能恢复服务。
 
@@ -412,16 +415,18 @@ void sim_run(SimConfig *cfg, EventList *el, Queue *queue, Window *wins,
 double sim_get_current_time(void);  // 返回仿真当前时间（由sim_run内部维护的静态变量）
 
 // --- P3: 业务逻辑 ---
+int  get_queue_for_window_type(WindowType wtype);
+void try_call_next(SimConfig *cfg, Queue *queue, Window *wins, int win_count, EventList *el, StatsCollector *stats);
+void start_service_for_client(Client *c, Window *win, SimConfig *cfg, EventList *el, StatsCollector *stats);
+void schedule_next_arrival(SimConfig *cfg, EventList *el, double current_time);
 void handle_arrival(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 void handle_bulk_arrival(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
-void schedule_next_arrival(SimConfig *cfg, EventList *el, double current_time);  // 由handle_arrival内部调用，安排下一次到达事件
 void handle_start_service(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 void handle_end_service(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 void handle_window_switch(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
-void scheduler_check_tidal(SimConfig *cfg, Queue *queue, Window *wins, double current_time);
+void scheduler_check_tidal(SimConfig *cfg, Queue *queue, Window *wins, EventList *el, double current_time);
 void scheduler_check_balking(Event *e, SimConfig *cfg, Queue *queue, StatsCollector *stats);
 void scheduler_check_jockeying(SimConfig *cfg, Queue *queue, int queue_id, StatsCollector *stats);
-void scheduler_check_no_response(SimConfig *cfg, Queue *queue, EventList *el, double current_time);
 void handle_no_response_timeout(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 void handle_shutdown(Event *e, SimConfig *cfg, Queue *queue, Window *wins, EventList *el, StatsCollector *stats);
 
